@@ -4,7 +4,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 import asyncio
 
-from packages.telegram.bot.bot import process_update
+from packages.HomiAI.bot.bot import process_update
 
 
 app = FastAPI(title="HomiAI Telegram Bot (Local)")

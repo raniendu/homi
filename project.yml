@@ -1,5 +1,5 @@
 packages:
-  - name: telegram
+  - name: HomiAI
     functions:
       - name: bot
         runtime: python:3.11
