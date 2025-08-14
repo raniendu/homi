@@ -23,19 +23,19 @@
     "apihost": "https://faas-sfo3-7872a1dd.doserverless.co",
     "namespace": "fn-cfd5702a-e937-400f-b6db-090a4f825d70",
     "packageVersions": {
-      "telegram": {
-        "version": "0.0.4",
+      "HomiAI": {
+        "version": "0.0.2",
         "digest": "12d2c7481b997cedb433862820cd24fdfad14c10895b5ed247a1302c3e916415"
       }
     },
     "actionVersions": {
-      "telegram/__init__": {
-        "version": "0.0.1",
+      "HomiAI/__init__": {
+        "version": "0.0.2",
         "digest": "47192313999d88393af13a0a1f8eaac54fd6a897b26bd70c9af3e757100ebe52"
       },
-      "telegram/bot": {
-        "version": "0.0.4",
-        "digest": "3764707e0b71a958339b9798694fcb9e5d3a04dfc16f47c6cd56e2473301cafb"
+      "HomiAI/bot": {
+        "version": "0.0.2",
+        "digest": "fe636b3869148075df3fdb1a661fca37de1c90612ca03025c7a1aee236fa6137"
       }
     }
   }
