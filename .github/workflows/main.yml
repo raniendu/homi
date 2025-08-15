@@ -1,0 +1,91 @@
+name: Deploy to DigitalOcean Functions
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  do-functions-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Install DO Functions plugin
+        run: doctl serverless install
+
+      - name: Connect to DO Functions namespace
+        env:
+          DO_FUNCTIONS_NAMESPACE: ${{ secrets.DO_FUNCTIONS_NAMESPACE }}
+        run: |
+          set -e
+          NS="$DO_FUNCTIONS_NAMESPACE"
+          if [ -z "$NS" ]; then
+            # Fallback: pick the first available namespace
+            NS=$(doctl functions namespaces list --format Name --no-header | head -n1)
+          fi
+          if [ -z "$NS" ]; then
+            echo "No Functions namespace found. Set DO_FUNCTIONS_NAMESPACE secret." >&2
+            exit 1
+          fi
+          echo "Connecting to namespace: $NS"
+          doctl serverless connect "$NS"
+          doctl serverless status
+
+      - name: Deploy to DO Functions
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -e
+          # Provide env file for YAML substitution in project.yml
+          cat > .env.serverless <<EOF
+          TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+          OPENAI_API_KEY=${OPENAI_API_KEY}
+          EOF
+          doctl serverless deploy . --env .env.serverless
+
+      - name: Get Function URL
+        id: get-url
+        run: |
+          URL=$(doctl serverless functions get HomiAI/bot --url | tail -n1)
+          echo "Function URL: $URL"
+          echo "url=$URL" >> $GITHUB_OUTPUT
+
+      - name: Delete Telegram Webhook
+        if: ${{ steps.get-url.outputs.url != '' }}
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        run: |
+          curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/deleteWebhook?drop_pending_updates=true"
+
+      - name: Set Telegram Webhook
+        if: ${{ steps.get-url.outputs.url != '' }}
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        run: |
+          curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook" \
+            -F "url=${{ steps.get-url.outputs.url }}"
+
+      - name: Activation Test
+        if: ${{ steps.get-url.outputs.url != '' }}
+        run: |
+          set -e
+          URL='${{ steps.get-url.outputs.url }}'
+          echo "Pinging function URL: $URL"
+          CODE=$(curl -sS -o /tmp/fn.out -w "%{http_code}" -X POST "$URL" -H 'Content-Type: application/json' -d '{}')
+          echo "HTTP $CODE"
+          echo "Response body:" && cat /tmp/fn.out || true
+          if [ "$CODE" != "200" ]; then
+            echo "Activation test failed with HTTP $CODE" >&2
+            exit 1
+          fi
+

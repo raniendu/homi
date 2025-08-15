@@ -46,3 +46,15 @@ Notes
 ## Environment
 - Required: `TELEGRAM_BOT_TOKEN`, `OPENAI_API_KEY`.
 - Never commit secrets; `.env` is git-ignored.
+
+## CI/CD (GitHub Actions)
+- Automated deploys on push to `main`/`master` via `.github/workflows/main.yml`.
+- Required repository secrets:
+  - `DIGITALOCEAN_ACCESS_TOKEN`: Personal access token with Functions access.
+  - `DO_FUNCTIONS_NAMESPACE` (optional): Target namespace; if unset, the first available is used.
+  - `TELEGRAM_BOT_TOKEN`, `OPENAI_API_KEY`: Used for YAML substitution during deploy.
+- The workflow:
+  - Installs `doctl` and the DO Serverless plugin.
+  - Connects to the namespace and runs `doctl serverless deploy .`.
+  - Fetches the `HomiAI/bot` URL and resets/sets the Telegram webhook to that URL.
+  - Verifies activation returns `200`.

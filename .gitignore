@@ -41,3 +41,6 @@ coverage.xml
 .idea/
 .vscode/
 
+# DO Serverless local artifacts
+.deployed/
+packages/**/__deployer__.zip

@@ -20,6 +20,18 @@ This guide walks through deploying the Telegram bot as a DigitalOcean Function a
 - Deploy: `doctl serverless deploy .`
 - Verify: `doctl serverless functions list` and locate `telegram/bot`.
 
+## CI/CD via GitHub Actions
+- This repo includes `.github/workflows/main.yml` to auto-deploy on push to `main`/`master`.
+- Configure repository secrets:
+  - `DIGITALOCEAN_ACCESS_TOKEN`: DO PAT with Functions access.
+  - `DO_FUNCTIONS_NAMESPACE` (optional): Specific namespace to target.
+  - `TELEGRAM_BOT_TOKEN` and `OPENAI_API_KEY`: Substituted into `project.yml` at deploy time.
+- The workflow will:
+  - Install `doctl` and the serverless plugin, connect to the namespace.
+  - Deploy the function defined in `project.yml`.
+  - Fetch the `HomiAI/bot` HTTPS URL and update the Telegram webhook.
+  - Perform a simple activation test expecting `200 OK`.
+
 ## Get HTTPS URL
 - Get route URL: `doctl serverless functions get telegram/bot` (look for Web Action URL) or `doctl serverless routes list`.
 

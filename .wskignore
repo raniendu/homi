@@ -1,0 +1,33 @@
+# Ignore files that should not be packaged/deployed by DO Functions (OpenWhisk)
+
+# VCS and IDE
+.git/
+.idea/
+.vscode/
+
+# Python caches and venvs
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# Env files
+.env
+.env.*
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Local deployer artifacts
+packages/**/__deployer__.zip
+
+# Prevent accidental deployment of package-level __init__ files as actions
+packages/__init__.py
+packages/HomiAI/__init__.py
+
+# Unused legacy folder
+functions/
