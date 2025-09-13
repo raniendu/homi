@@ -25,17 +25,13 @@
     "packageVersions": {
       "HomiAI": {
         "version": "0.0.2",
-        "digest": "12d2c7481b997cedb433862820cd24fdfad14c10895b5ed247a1302c3e916415"
+        "digest": "e54190369c1371e1098451905de586b49f5f9b9e0d92bf5998aec0c74770f3ab"
       }
     },
     "actionVersions": {
-      "HomiAI/__init__": {
-        "version": "0.0.2",
-        "digest": "47192313999d88393af13a0a1f8eaac54fd6a897b26bd70c9af3e757100ebe52"
-      },
       "HomiAI/bot": {
         "version": "0.0.2",
-        "digest": "fe636b3869148075df3fdb1a661fca37de1c90612ca03025c7a1aee236fa6137"
+        "digest": "476633b66a66f29858a6ba25e31aab7d680aa82f2d47fd991432f3640144b2f5"
       }
     }
   }
