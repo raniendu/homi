@@ -59,23 +59,48 @@ def _generate_reply(user_text: str) -> str:
     if not OPENAI_API_KEY:
         return "I’m not configured yet. Please try again later."
     try:
-        url = "https://api.openai.com/v1/chat/completions"
+        url = "https://api.openai.com/v1/responses"
         payload = {
-            "model": "gpt-4o-mini",
-            "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_text},
+            "model": "gpt-4.1-mini",
+            "input": [
+                {
+                    "role": "system",
+                    "content": [{"type": "text", "text": SYSTEM_PROMPT}],
+                },
+                {
+                    "role": "user",
+                    "content": [{"type": "text", "text": user_text}],
+                },
             ],
             "temperature": 0.4,
         }
-        headers = {"Authorization": f"Bearer {OPENAI_API_KEY}"}
+        headers = {
+            "Authorization": f"Bearer {OPENAI_API_KEY}",
+            "OpenAI-Beta": "responses=v1",
+        }
         status, body = _post_json(url, payload, headers=headers)
-        logger.info("OpenAI chat status=%s", status)
+        logger.info("OpenAI responses status=%s", status)
         if status >= 300:
             logger.error("OpenAI API error: %s %s", status, body)
             return "Sorry, I couldn’t think of a good answer just now."
         data = json.loads(body)
-        content = data.get("choices", [{}])[0].get("message", {}).get("content") or ""
+        content = data.get("output_text") or ""
+        if not content:
+            # Fallback in case output_text is missing; aggregate message text parts.
+            for item in data.get("output", []) or []:
+                if item.get("type") != "message":
+                    continue
+                parts = item.get("content") or []
+                text_parts = [
+                    part.get("text")
+                    for part in parts
+                    if isinstance(part, dict)
+                    and part.get("type") in {"text", "output_text"}
+                    and part.get("text")
+                ]
+                if text_parts:
+                    content = "".join(text_parts)
+                    break
         return (content or "")[:4000] or "(no content)"
     except Exception as e:
         logger.exception("OpenAI generation failed: %s", e)
