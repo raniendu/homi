@@ -40,7 +40,7 @@ A conversational Telegram bot backed by OpenAI, deployed on DigitalOcean Functio
   - `TELEGRAM_BOT_TOKEN=123456:YOUR_TOKEN`
   - `OPENAI_API_KEY=sk-...`
   - `EOF`
-  - `doctl serverless deploy . --env-file .env.serverless`
+  - `doctl serverless deploy . --env .env.serverless`
 - Get URL: `doctl serverless functions get telegram/bot`
 - Set webhook to that URL via Telegram API. See `SETUP.md` for details.
 
@@ -60,6 +60,6 @@ Notes
   - `TELEGRAM_BOT_TOKEN`, `OPENAI_API_KEY`: Used for YAML substitution during deploy.
 - The workflow:
   - Installs `doctl` and the DO Serverless plugin.
-  - Connects to the namespace and runs `doctl serverless deploy . --env-file .env.serverless` with secrets populated from GitHub.
+  - Connects to the namespace and runs `doctl serverless deploy . --env .env.serverless` with secrets populated from GitHub.
   - Fetches the `HomiAI/bot` URL and resets/sets the Telegram webhook to that URL.
   - Verifies activation returns `200`.
