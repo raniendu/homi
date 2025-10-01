@@ -51,7 +51,7 @@ jobs:
           TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
           OPENAI_API_KEY=${OPENAI_API_KEY}
           EOF
-          doctl serverless deploy . --env .env.serverless
+          doctl serverless deploy . --env-file .env.serverless
 
       - name: Get Function URL
         id: get-url
@@ -88,4 +88,3 @@ jobs:
             echo "Activation test failed with HTTP $CODE" >&2
             exit 1
           fi
-

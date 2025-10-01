@@ -9,15 +9,24 @@ This guide walks through deploying the Telegram bot as a DigitalOcean Function a
 - DO Serverless plugin installed: `doctl serverless install`.
 
 ## Configure Secrets
-- Option A — export for YAML substitution at deploy time:
+- Option A — create an env file for YAML substitution during deploy:
+  - `cat > .env.serverless <<'EOF'`
+  - `TELEGRAM_BOT_TOKEN=123456:YOUR_TOKEN`
+  - `OPENAI_API_KEY=sk-...`
+  - `EOF`
+  - deploy with `doctl serverless deploy . --env-file .env.serverless`
+- Option B — export variables, write them to a temporary file, then deploy:
   - `export TELEGRAM_BOT_TOKEN=123456:YOUR_TOKEN`
   - `export OPENAI_API_KEY=sk-...`
-- Option B — set as function parameters after deploy:
+  - `printf "TELEGRAM_BOT_TOKEN=%s\nOPENAI_API_KEY=%s\n" "$TELEGRAM_BOT_TOKEN" "$OPENAI_API_KEY" > /tmp/do.env`
+  - `doctl serverless deploy . --env-file /tmp/do.env`
+  - `rm /tmp/do.env`
+- Option C — set as function parameters after deploy:
   - `doctl serverless functions update telegram/bot --param TELEGRAM_BOT_TOKEN "$TELEGRAM_BOT_TOKEN" --param OPENAI_API_KEY "$OPENAI_API_KEY"`
 
 ## Deploy the Function
 - Ensure structure is intact: `project.yml` and `packages/telegram/bot/` exist.
-- Deploy: `doctl serverless deploy .`
+- Deploy (supplying env file): `doctl serverless deploy . --env-file .env.serverless`
 - Verify: `doctl serverless functions list` and locate `telegram/bot`.
 
 ## CI/CD via GitHub Actions
@@ -49,6 +58,6 @@ This guide walks through deploying the Telegram bot as a DigitalOcean Function a
 ## Notes & Troubleshooting
 - Logs: check DO activations/logs: `doctl serverless activations list` / `doctl serverless activations get <id>`.
 - Timeouts: increase in `project.yml` (`limits.timeout`) if needed.
-- Secrets: rotate tokens on leak; update `doctl serverless deploy .` after changing env.
+- Secrets: rotate tokens on leak; redeploy via `doctl serverless deploy . --env-file .env.serverless` after changing env.
 - Validation: Telegram requires HTTPS and a reachable webhook URL.
  - Webhook mode: project uses `web: raw`; function returns `200 OK` and body `OK`.
