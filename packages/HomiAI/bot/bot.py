@@ -1,12 +1,19 @@
 import os
 import logging
 import json
+import sys
 from typing import Any, Dict, Optional, Tuple
 from urllib import request, error
 
 
 logger = logging.getLogger("telegram_bot")
-logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+logger.setLevel(logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s %(levelname)s %(message)s',
+    handlers=[logging.StreamHandler(sys.stdout)],
+    force=True,
+)
 
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -274,9 +281,14 @@ def _generate_reply(user_text: str) -> str:
                 "OpenAI responses returned no content; attempting chat fallback request_id=%s",
                 meta.get("request_id"),
             )
-            fallback_content, _ = _call_openai_chat(user_text)
+            fallback_content, fallback_meta = _call_openai_chat(user_text)
             if fallback_content:
                 return fallback_content[:MAX_REPLY_LEN]
+            logger.error(
+                "Chat fallback empty response status=%s request_id=%s",
+                fallback_meta.get("status"),
+                fallback_meta.get("request_id"),
+            )
             return FALLBACK_REPLY
         if _should_try_chat_fallback(status, error_info):
             logger.info(
@@ -294,6 +306,13 @@ def _generate_reply(user_text: str) -> str:
                 fallback_meta.get("request_id"),
             )
             return FALLBACK_REPLY
+        body_snippet = (error_info.get("message") or meta.get("body") or "")[:200]
+        logger.error(
+            "OpenAI responses rejected request without fallback status=%s code=%s message=%s",
+            status,
+            error_info.get("code"),
+            body_snippet,
+        )
         return FALLBACK_REPLY
     except Exception as exc:  # pragma: no cover - defensive guard
         logger.exception("OpenAI generation failed: %s", exc)
