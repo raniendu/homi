@@ -351,6 +351,7 @@ def _send_telegram_message(chat_id: int, text: str) -> None:
 def _generate_reply(user_text: str) -> str:
     api_key = _get_openai_api_key()
     if not api_key:
+        logger.error("OPENAI_API_KEY is missing; cannot generate reply.")
         return "I’m not configured yet. Please try again later."
     try:
         client = _create_openai_client(api_key)
