@@ -16,8 +16,16 @@ logging.basicConfig(
 )
 
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+def _get_openai_api_key() -> Optional[str]:
+    return os.getenv("OPENAI_API_KEY")
+
+
+def _get_telegram_bot_token() -> Optional[str]:
+    return os.getenv("TELEGRAM_BOT_TOKEN")
+
+
+OPENAI_API_KEY = _get_openai_api_key()
+TELEGRAM_BOT_TOKEN = _get_telegram_bot_token()
 PRIMARY_MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
 FALLBACK_MODEL = os.getenv("OPENAI_FALLBACK_MODEL", "gpt-4o-mini")
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
@@ -123,7 +131,7 @@ def _extract_openai_error(body: str) -> Dict[str, Any]:
 
 
 def _should_try_chat_fallback(status: int, error: Dict[str, Any]) -> bool:
-    if status in {404, 422}:
+    if status in {400, 401, 403, 404, 409, 422, 429}:
         return True
     message = (error.get("message") or "").lower()
     code = (error.get("code") or "").lower()
@@ -131,6 +139,10 @@ def _should_try_chat_fallback(status: int, error: Dict[str, Any]) -> bool:
         "model_not_found",
         "unsupported_model",
         "invalid_request_error",
+        "rate_limit",
+        "insufficient_quota",
+        "server_error",
+        "timeout",
     )
     if any(token in code for token in triggers):
         return True
@@ -138,11 +150,18 @@ def _should_try_chat_fallback(status: int, error: Dict[str, Any]) -> bool:
         "does not exist",
         "is not available",
         "unrecognized request argument supplied: input",
+        "rate limit",
+        "quota",
+        "timeout",
+        "temporarily unavailable",
+        "overloaded",
     )
-    return any(pattern in message for pattern in patterns)
+    if any(pattern in message for pattern in patterns):
+        return True
+    return status >= 500
 
 
-def _call_openai_responses(user_text: str) -> Tuple[Optional[str], Dict[str, Any]]:
+def _call_openai_responses(api_key: str, user_text: str) -> Tuple[Optional[str], Dict[str, Any]]:
     payload = {
         "model": PRIMARY_MODEL,
         "input": [
@@ -158,7 +177,7 @@ def _call_openai_responses(user_text: str) -> Tuple[Optional[str], Dict[str, Any
         "temperature": 0.4,
     }
     headers = {
-        "Authorization": f"Bearer {OPENAI_API_KEY}",
+        "Authorization": f"Bearer {api_key}",
         "OpenAI-Beta": "responses=v1",
     }
     status, body, resp_headers = _post_json(OPENAI_RESPONSES_URL, payload, headers=headers)
@@ -198,7 +217,7 @@ def _call_openai_responses(user_text: str) -> Tuple[Optional[str], Dict[str, Any
     return (content or None), meta
 
 
-def _call_openai_chat(user_text: str) -> Tuple[Optional[str], Dict[str, Any]]:
+def _call_openai_chat(api_key: str, user_text: str) -> Tuple[Optional[str], Dict[str, Any]]:
     payload = {
         "model": FALLBACK_MODEL,
         "messages": [
@@ -207,7 +226,7 @@ def _call_openai_chat(user_text: str) -> Tuple[Optional[str], Dict[str, Any]]:
         ],
         "temperature": 0.4,
     }
-    headers = {"Authorization": f"Bearer {OPENAI_API_KEY}"}
+    headers = {"Authorization": f"Bearer {api_key}"}
     status, body, resp_headers = _post_json(OPENAI_CHAT_URL, payload, headers=headers)
     request_id = resp_headers.get("x-request-id") or resp_headers.get("x-openai-request-id")
     meta: Dict[str, Any] = {
@@ -249,10 +268,11 @@ def _call_openai_chat(user_text: str) -> Tuple[Optional[str], Dict[str, Any]]:
 
 
 def _send_telegram_message(chat_id: int, text: str) -> None:
-    if not TELEGRAM_BOT_TOKEN:
+    token = _get_telegram_bot_token()
+    if not token:
         logger.error("Missing TELEGRAM_BOT_TOKEN; cannot send message.")
         return
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
     payload = {"chat_id": chat_id, "text": text}
     status, body, _ = _post_json(url, payload)
     if status >= 300:
@@ -276,10 +296,11 @@ def _send_telegram_message(chat_id: int, text: str) -> None:
 
 
 def _generate_reply(user_text: str) -> str:
-    if not OPENAI_API_KEY:
+    api_key = _get_openai_api_key()
+    if not api_key:
         return "I’m not configured yet. Please try again later."
     try:
-        content, meta = _call_openai_responses(user_text)
+        content, meta = _call_openai_responses(api_key, user_text)
         if content:
             return content[:MAX_REPLY_LEN]
         status = meta.get("status", 500)
@@ -289,7 +310,7 @@ def _generate_reply(user_text: str) -> str:
                 "OpenAI responses returned no content; attempting chat fallback request_id=%s",
                 meta.get("request_id"),
             )
-            fallback_content, fallback_meta = _call_openai_chat(user_text)
+            fallback_content, fallback_meta = _call_openai_chat(api_key, user_text)
             if fallback_content:
                 return fallback_content[:MAX_REPLY_LEN]
             logger.error(
@@ -305,7 +326,7 @@ def _generate_reply(user_text: str) -> str:
                 status,
                 error_info.get("code"),
             )
-            fallback_content, fallback_meta = _call_openai_chat(user_text)
+            fallback_content, fallback_meta = _call_openai_chat(api_key, user_text)
             if fallback_content:
                 return fallback_content[:MAX_REPLY_LEN]
             logger.error(
