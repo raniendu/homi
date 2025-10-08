@@ -259,11 +259,19 @@ def _send_telegram_message(chat_id: int, text: str) -> None:
         logger.error("Telegram sendMessage failed status=%s body=%s", status, body[:200])
         return
     data = _safe_json_loads(body)
-    message_id = None
-    if isinstance(data, dict):
-        result = data.get("result")
-        if isinstance(result, dict):
-            message_id = result.get("message_id")
+    if not isinstance(data, dict):
+        logger.error("Telegram sendMessage malformed response status=%s body=%s", status, body[:200])
+        return
+    if not data.get("ok", False):
+        logger.error(
+            "Telegram sendMessage rejected status=%s error_code=%s description=%s",
+            status,
+            data.get("error_code"),
+            data.get("description"),
+        )
+        return
+    result = data.get("result")
+    message_id = result.get("message_id") if isinstance(result, dict) else None
     logger.info("Telegram sendMessage ok status=%s message_id=%s", status, message_id)
 
 
