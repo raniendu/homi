@@ -59,9 +59,19 @@ def _normalize_headers(raw_headers: Any) -> Dict[str, str]:
 
 
 def _create_openai_client(api_key: str):
-    if OpenAI is None:
-        raise RuntimeError("openai package is not installed")
-    return OpenAI(api_key=api_key)
+    if OpenAI is not None:
+        try:
+            return OpenAI(api_key=api_key)
+        except TypeError:
+            logger.info("OpenAI client class rejected api_key argument; falling back to legacy module usage.")
+        except Exception:
+            raise
+    try:
+        import openai as openai_module  # type: ignore
+    except ImportError as exc:  # pragma: no cover - should be prevented by dependency installation
+        raise RuntimeError("openai package is not installed") from exc
+    openai_module.api_key = api_key  # type: ignore[attr-defined]
+    return openai_module
 
 
 def _object_to_dict(payload: Any) -> Dict[str, Any]:
@@ -209,7 +219,12 @@ def _should_try_chat_fallback(status: Optional[int], error: Dict[str, Any]) -> b
 
 
 def _call_openai_responses(client, user_text: str) -> Optional[str]:
-    response = client.responses.create(
+    responses_api = getattr(client, "responses", None)
+    create_fn = getattr(responses_api, "create", None) if responses_api else None
+    if not callable(create_fn):
+        logger.info("OpenAI responses API not available; skipping primary completion path.")
+        return None
+    response = create_fn(
         model=PRIMARY_MODEL,
         input=[
             {
@@ -244,35 +259,65 @@ def _call_openai_responses(client, user_text: str) -> Optional[str]:
 
 
 def _call_openai_chat(client, user_text: str) -> Optional[str]:
-    response = client.chat.completions.create(
-        model=FALLBACK_MODEL,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_text},
-        ],
-        temperature=0.4,
-    )
-    request_id = getattr(response, "id", None)
-    usage = _format_usage(_usage_to_dict(getattr(response, "usage", None)))
-    logger.info(
-        "OpenAI chat completions ok request_id=%s usage=%s",
-        request_id,
-        usage or "{}",
-    )
-    choices = getattr(response, "choices", None)
-    if not choices:
-        logger.warning(
-            "OpenAI chat completions empty choices request_id=%s",
-            request_id,
+    chat_namespace = getattr(client, "chat", None)
+    completions_namespace = getattr(chat_namespace, "completions", None) if chat_namespace else None
+    create_fn = getattr(completions_namespace, "create", None) if completions_namespace else None
+    legacy_chat_completion = getattr(client, "ChatCompletion", None)
+
+    if callable(create_fn):
+        response = create_fn(
+            model=FALLBACK_MODEL,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_text},
+            ],
+            temperature=0.4,
         )
+        request_id = getattr(response, "id", None)
+        usage = _format_usage(_usage_to_dict(getattr(response, "usage", None)))
+        logger.info(
+            "OpenAI chat completions ok request_id=%s usage=%s",
+            request_id,
+            usage or "{}",
+        )
+        choices = getattr(response, "choices", None)
+        if not choices:
+            logger.warning(
+                "OpenAI chat completions empty choices request_id=%s",
+                request_id,
+            )
+            return None
+        first = choices[0]
+        message = getattr(first, "message", None)
+        if isinstance(message, dict):
+            content = message.get("content")
+        else:
+            content = getattr(message, "content", None)
+        return content or None
+
+    if legacy_chat_completion and hasattr(legacy_chat_completion, "create"):
+        response = legacy_chat_completion.create(  # type: ignore[call-arg]
+            model=FALLBACK_MODEL,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_text},
+            ],
+            temperature=0.4,
+        )
+        if isinstance(response, dict):
+            usage = _format_usage(response.get("usage", {}))
+            logger.info("OpenAI ChatCompletion ok usage=%s", usage or "{}")
+            choices = response.get("choices") or []
+            if not choices:
+                logger.warning("OpenAI ChatCompletion returned no choices.")
+                return None
+            message = choices[0].get("message") if isinstance(choices[0], dict) else None
+            if isinstance(message, dict):
+                return message.get("content") or None
+            return None
         return None
-    first = choices[0]
-    message = getattr(first, "message", None)
-    if isinstance(message, dict):
-        content = message.get("content")
-    else:
-        content = getattr(message, "content", None)
-    return content or None
+
+    raise RuntimeError("OpenAI chat completions API is unavailable in this client")
 
 
 def _send_telegram_message(chat_id: int, text: str) -> None:
@@ -309,42 +354,48 @@ def _generate_reply(user_text: str) -> str:
         return "I’m not configured yet. Please try again later."
     try:
         client = _create_openai_client(api_key)
-        should_fallback = False
-        try:
-            content = _call_openai_responses(client, user_text)
-            if content:
-                return content[:MAX_REPLY_LEN]
-            logger.info("OpenAI responses returned no content; attempting chat fallback")
-            should_fallback = True
-        except Exception as exc:
-            status, error_info = _extract_openai_exception(exc)
-            logger.error(
-                "OpenAI responses error status=%s code=%s message=%s",
-                status,
-                error_info.get("code"),
-                error_info.get("message"),
-            )
-            should_fallback = _should_try_chat_fallback(status, error_info)
-            if not should_fallback:
-                return FALLBACK_REPLY
-        try:
-            if not should_fallback:
-                return FALLBACK_REPLY
-            fallback_content = _call_openai_chat(client, user_text)
-            if fallback_content:
-                return fallback_content[:MAX_REPLY_LEN]
-            logger.error("Chat fallback empty response")
-            return FALLBACK_REPLY
-        except Exception as exc:
-            status, error_info = _extract_openai_exception(exc)
-            logger.error(
-                "Fallback chat completions error status=%s code=%s message=%s",
-                status,
-                error_info.get("code"),
-                error_info.get("message"),
-            )
-            return FALLBACK_REPLY
+    except RuntimeError as exc:
+        logger.error("OpenAI client initialization failed: %s", exc)
+        return "I’m not configured yet. Please try again later."
     except Exception as exc:  # pragma: no cover - defensive guard
+        logger.exception("OpenAI client initialization crashed: %s", exc)
+        return "Sorry, I hit an error while thinking about that."
+
+    should_fallback = False
+    try:
+        content = _call_openai_responses(client, user_text)
+        if content:
+            return content[:MAX_REPLY_LEN]
+        logger.info("OpenAI responses returned no content; attempting chat fallback")
+        should_fallback = True
+    except Exception as exc:
+        status, error_info = _extract_openai_exception(exc)
+        logger.error(
+            "OpenAI responses error status=%s code=%s message=%s",
+            status,
+            error_info.get("code"),
+            error_info.get("message"),
+        )
+        should_fallback = _should_try_chat_fallback(status, error_info)
+        if not should_fallback:
+            return FALLBACK_REPLY
+    try:
+        if not should_fallback:
+            return FALLBACK_REPLY
+        fallback_content = _call_openai_chat(client, user_text)
+        if fallback_content:
+            return fallback_content[:MAX_REPLY_LEN]
+        logger.error("Chat fallback empty response")
+        return FALLBACK_REPLY
+    except Exception as exc:
+        status, error_info = _extract_openai_exception(exc)
+        logger.error(
+            "Fallback chat completions error status=%s code=%s message=%s",
+            status,
+            error_info.get("code"),
+            error_info.get("message"),
+        )
+        return FALLBACK_REPLY
         logger.exception("OpenAI generation failed: %s", exc)
         return "Sorry, I hit an error while thinking about that."
 
