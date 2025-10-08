@@ -41,11 +41,14 @@ jobs:
           doctl serverless status
 
       - name: Deploy to DO Functions
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           set -e
-          doctl serverless deploy . \
-            --param TELEGRAM_BOT_TOKEN='${{ secrets.TELEGRAM_BOT_TOKEN }}' \
-            --param OPENAI_API_KEY='${{ secrets.OPENAI_API_KEY }}'
+          printf "TELEGRAM_BOT_TOKEN=%s\nOPENAI_API_KEY=%s\n" "$TELEGRAM_BOT_TOKEN" "$OPENAI_API_KEY" > .env.serverless
+          doctl serverless deploy . --env .env.serverless
+          rm -f .env.serverless
 
       - name: Get Function URL
         id: get-url
