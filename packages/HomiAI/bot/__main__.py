@@ -41,7 +41,10 @@ def main(args: Dict[str, Any]):
         os.environ["OPENAI_API_KEY"] = oa
 
     # Import after setting env so the bot initializes with correct creds
-    from .bot import process_update
+    try:
+        from .bot import process_update  # type: ignore
+    except ImportError:
+        from bot import process_update  # type: ignore
 
     update = _parse_body(args)
     process_update(update)
