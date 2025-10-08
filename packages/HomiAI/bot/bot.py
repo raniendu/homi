@@ -5,6 +5,11 @@ import sys
 from typing import Any, Dict, Optional, Tuple
 from urllib import request, error
 
+try:
+    from openai import OpenAI
+except ImportError:  # pragma: no cover - library may be missing in some environments
+    OpenAI = None  # type: ignore[assignment]
+
 
 logger = logging.getLogger("telegram_bot")
 logger.setLevel(logging.INFO)
@@ -28,8 +33,6 @@ OPENAI_API_KEY = _get_openai_api_key()
 TELEGRAM_BOT_TOKEN = _get_telegram_bot_token()
 PRIMARY_MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
 FALLBACK_MODEL = os.getenv("OPENAI_FALLBACK_MODEL", "gpt-4o-mini")
-OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
-OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions"
 MAX_REPLY_LEN = 4000
 FALLBACK_REPLY = "Sorry, I couldn’t think of a good answer just now."
 
@@ -53,6 +56,61 @@ def _normalize_headers(raw_headers: Any) -> Dict[str, str]:
         return {str(k).lower(): str(v) for k, v in raw_headers.items()}
     except AttributeError:
         return {}
+
+
+def _create_openai_client(api_key: str):
+    if OpenAI is None:
+        raise RuntimeError("openai package is not installed")
+    return OpenAI(api_key=api_key)
+
+
+def _object_to_dict(payload: Any) -> Dict[str, Any]:
+    if payload is None:
+        return {}
+    if isinstance(payload, dict):
+        return payload
+    for attr in ("model_dump", "to_dict", "dict"):
+        method = getattr(payload, attr, None)
+        if callable(method):
+            try:
+                data = method()
+                if isinstance(data, dict):
+                    return data
+            except Exception:
+                continue
+    return {}
+
+
+def _usage_to_dict(usage: Any) -> Dict[str, Any]:
+    if usage is None:
+        return {}
+    if isinstance(usage, dict):
+        return usage
+    return _object_to_dict(usage)
+
+
+def _extract_openai_exception(exc: Exception) -> Tuple[Optional[int], Dict[str, Any]]:
+    status = getattr(exc, "status_code", None)
+    code = getattr(exc, "code", None)
+    message = getattr(exc, "message", None)
+    response_payload: Dict[str, Any] = {}
+    response = getattr(exc, "response", None)
+    if response is not None:
+        try:
+            response_payload = response.json()  # type: ignore[attr-defined]
+        except Exception:
+            response_payload = {}
+    elif hasattr(exc, "body"):
+        try:
+            response_payload = json.loads(getattr(exc, "body"))
+        except Exception:
+            response_payload = {}
+    error_obj = response_payload.get("error") if isinstance(response_payload, dict) else None
+    if isinstance(error_obj, dict):
+        code = code or error_obj.get("code") or error_obj.get("type")
+        message = message or error_obj.get("message")
+    clean_message = message or str(exc)
+    return status, {"code": code, "message": clean_message}
 
 
 def _safe_json_loads(body: str) -> Dict[str, Any]:
@@ -117,20 +175,9 @@ def _extract_responses_content(data: Dict[str, Any]) -> str:
     return ""
 
 
-def _extract_openai_error(body: str) -> Dict[str, Any]:
-    data = _safe_json_loads(body)
-    error_obj = data.get("error") if isinstance(data, dict) else None
-    if isinstance(error_obj, dict):
-        return {
-            "code": error_obj.get("code") or error_obj.get("type"),
-            "message": error_obj.get("message"),
-            "param": error_obj.get("param"),
-            "type": error_obj.get("type"),
-        }
-    return {"message": body[:200]}
-
-
-def _should_try_chat_fallback(status: int, error: Dict[str, Any]) -> bool:
+def _should_try_chat_fallback(status: Optional[int], error: Dict[str, Any]) -> bool:
+    if status is None:
+        return True
     if status in {400, 401, 403, 404, 409, 422, 429}:
         return True
     message = (error.get("message") or "").lower()
@@ -161,10 +208,10 @@ def _should_try_chat_fallback(status: int, error: Dict[str, Any]) -> bool:
     return status >= 500
 
 
-def _call_openai_responses(api_key: str, user_text: str) -> Tuple[Optional[str], Dict[str, Any]]:
-    payload = {
-        "model": PRIMARY_MODEL,
-        "input": [
+def _call_openai_responses(client, user_text: str) -> Optional[str]:
+    response = client.responses.create(
+        model=PRIMARY_MODEL,
+        input=[
             {
                 "role": "system",
                 "content": [{"type": "text", "text": SYSTEM_PROMPT}],
@@ -174,97 +221,58 @@ def _call_openai_responses(api_key: str, user_text: str) -> Tuple[Optional[str],
                 "content": [{"type": "text", "text": user_text}],
             },
         ],
-        "temperature": 0.4,
-    }
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "OpenAI-Beta": "responses=v1",
-    }
-    status, body, resp_headers = _post_json(OPENAI_RESPONSES_URL, payload, headers=headers)
-    request_id = resp_headers.get("x-request-id") or resp_headers.get("x-openai-request-id")
-    meta: Dict[str, Any] = {
-        "status": status,
-        "body": body,
-        "headers": resp_headers,
-        "request_id": request_id,
-    }
-    if status >= 300:
-        error_info = _extract_openai_error(body)
-        meta["error"] = error_info
-        logger.error(
-            "OpenAI responses error status=%s request_id=%s code=%s message=%s",
-            status,
-            request_id,
-            error_info.get("code"),
-            error_info.get("message") or body[:200],
-        )
-        return None, meta
-    data = _safe_json_loads(body)
-    meta["data"] = data
-    logger.info(
-        "OpenAI responses ok status=%s request_id=%s usage=%s",
-        status,
-        request_id,
-        _format_usage(data.get("usage", {})) if isinstance(data, dict) else "{}",
+        temperature=0.4,
     )
-    content = _extract_responses_content(data if isinstance(data, dict) else {})
+    request_id = getattr(response, "id", None)
+    usage = _format_usage(_usage_to_dict(getattr(response, "usage", None)))
+    logger.info(
+        "OpenAI responses ok request_id=%s usage=%s",
+        request_id,
+        usage or "{}",
+    )
+    content = getattr(response, "output_text", None)
+    if content:
+        return content
+    response_dict = _object_to_dict(response)
+    content = _extract_responses_content(response_dict)
     if not content:
         logger.warning(
-            "OpenAI responses empty completion status=%s request_id=%s",
-            status,
+            "OpenAI responses empty completion request_id=%s",
             request_id,
         )
-    return (content or None), meta
+    return content or None
 
 
-def _call_openai_chat(api_key: str, user_text: str) -> Tuple[Optional[str], Dict[str, Any]]:
-    payload = {
-        "model": FALLBACK_MODEL,
-        "messages": [
+def _call_openai_chat(client, user_text: str) -> Optional[str]:
+    response = client.chat.completions.create(
+        model=FALLBACK_MODEL,
+        messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_text},
         ],
-        "temperature": 0.4,
-    }
-    headers = {"Authorization": f"Bearer {api_key}"}
-    status, body, resp_headers = _post_json(OPENAI_CHAT_URL, payload, headers=headers)
-    request_id = resp_headers.get("x-request-id") or resp_headers.get("x-openai-request-id")
-    meta: Dict[str, Any] = {
-        "status": status,
-        "body": body,
-        "headers": resp_headers,
-        "request_id": request_id,
-    }
-    if status >= 300:
-        error_info = _extract_openai_error(body)
-        meta["error"] = error_info
-        logger.error(
-            "OpenAI chat completions error status=%s request_id=%s code=%s message=%s",
-            status,
-            request_id,
-            error_info.get("code"),
-            error_info.get("message") or body[:200],
-        )
-        return None, meta
-    data = _safe_json_loads(body)
-    meta["data"] = data
-    logger.info(
-        "OpenAI chat completions ok status=%s request_id=%s usage=%s",
-        status,
-        request_id,
-        _format_usage((data or {}).get("usage", {})) if isinstance(data, dict) else "{}",
+        temperature=0.4,
     )
-    choices = (data or {}).get("choices") if isinstance(data, dict) else None
+    request_id = getattr(response, "id", None)
+    usage = _format_usage(_usage_to_dict(getattr(response, "usage", None)))
+    logger.info(
+        "OpenAI chat completions ok request_id=%s usage=%s",
+        request_id,
+        usage or "{}",
+    )
+    choices = getattr(response, "choices", None)
     if not choices:
         logger.warning(
-            "OpenAI chat completions empty choices status=%s request_id=%s",
-            status,
+            "OpenAI chat completions empty choices request_id=%s",
             request_id,
         )
-        return None, meta
-    message = choices[0].get("message") if isinstance(choices[0], dict) else {}
-    content = message.get("content") if isinstance(message, dict) else None
-    return (content or None), meta
+        return None
+    first = choices[0]
+    message = getattr(first, "message", None)
+    if isinstance(message, dict):
+        content = message.get("content")
+    else:
+        content = getattr(message, "content", None)
+    return content or None
 
 
 def _send_telegram_message(chat_id: int, text: str) -> None:
@@ -300,49 +308,42 @@ def _generate_reply(user_text: str) -> str:
     if not api_key:
         return "I’m not configured yet. Please try again later."
     try:
-        content, meta = _call_openai_responses(api_key, user_text)
-        if content:
-            return content[:MAX_REPLY_LEN]
-        status = meta.get("status", 500)
-        error_info = meta.get("error") or {}
-        if status < 300:
-            logger.info(
-                "OpenAI responses returned no content; attempting chat fallback request_id=%s",
-                meta.get("request_id"),
-            )
-            fallback_content, fallback_meta = _call_openai_chat(api_key, user_text)
-            if fallback_content:
-                return fallback_content[:MAX_REPLY_LEN]
+        client = _create_openai_client(api_key)
+        should_fallback = False
+        try:
+            content = _call_openai_responses(client, user_text)
+            if content:
+                return content[:MAX_REPLY_LEN]
+            logger.info("OpenAI responses returned no content; attempting chat fallback")
+            should_fallback = True
+        except Exception as exc:
+            status, error_info = _extract_openai_exception(exc)
             logger.error(
-                "Chat fallback empty response status=%s request_id=%s",
-                fallback_meta.get("status"),
-                fallback_meta.get("request_id"),
-            )
-            return FALLBACK_REPLY
-        if _should_try_chat_fallback(status, error_info):
-            logger.info(
-                "Falling back to chat completions model=%s after responses error status=%s code=%s",
-                FALLBACK_MODEL,
+                "OpenAI responses error status=%s code=%s message=%s",
                 status,
                 error_info.get("code"),
+                error_info.get("message"),
             )
-            fallback_content, fallback_meta = _call_openai_chat(api_key, user_text)
+            should_fallback = _should_try_chat_fallback(status, error_info)
+            if not should_fallback:
+                return FALLBACK_REPLY
+        try:
+            if not should_fallback:
+                return FALLBACK_REPLY
+            fallback_content = _call_openai_chat(client, user_text)
             if fallback_content:
                 return fallback_content[:MAX_REPLY_LEN]
+            logger.error("Chat fallback empty response")
+            return FALLBACK_REPLY
+        except Exception as exc:
+            status, error_info = _extract_openai_exception(exc)
             logger.error(
-                "Fallback chat completions failed status=%s request_id=%s",
-                fallback_meta.get("status"),
-                fallback_meta.get("request_id"),
+                "Fallback chat completions error status=%s code=%s message=%s",
+                status,
+                error_info.get("code"),
+                error_info.get("message"),
             )
             return FALLBACK_REPLY
-        body_snippet = (error_info.get("message") or meta.get("body") or "")[:200]
-        logger.error(
-            "OpenAI responses rejected request without fallback status=%s code=%s message=%s",
-            status,
-            error_info.get("code"),
-            body_snippet,
-        )
-        return FALLBACK_REPLY
     except Exception as exc:  # pragma: no cover - defensive guard
         logger.exception("OpenAI generation failed: %s", exc)
         return "Sorry, I hit an error while thinking about that."
