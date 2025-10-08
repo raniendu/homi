@@ -3,12 +3,15 @@
 A conversational Telegram bot backed by OpenAI, deployed on DigitalOcean Functions. Local development runs via a small FastAPI server and Docker.
 
 ## Quick Start (Local)
-- Prereqs: Python 3.11, Docker (optional), `ngrok` (optional for webhook tests).
+- Prereqs: Python 3.11, [`uv`](https://docs.astral.sh/uv/) (recommended), Docker (optional), `ngrok` (optional for webhook tests).
 - Configure env: `cp .env.example .env` and set `TELEGRAM_BOT_TOKEN`, `OPENAI_API_KEY`.
-- Option A — Docker:
+- Option A — uv (recommended):
+  - `uv sync`
+  - `uv run python local_server.py`
+- Option B — Docker (uses uv inside the image):
   - `docker build -t homiai-bot .`
   - `docker run --rm -p 8080:8080 --env-file .env homiai-bot`
-- Option B — Virtualenv:
+- Option C — Virtualenv (fallback):
   - `python -m venv .venv && source .venv/bin/activate`
   - `pip install -r requirements.txt`
   - `python local_server.py`
@@ -26,7 +29,7 @@ A conversational Telegram bot backed by OpenAI, deployed on DigitalOcean Functio
 
 ## Development Workflow
 - Edit logic in `packages/telegram/bot/bot.py`; restart the server/container to apply changes.
-- Lint (optional): `pip install ruff && ruff check .`
+- Lint (optional): `uv run ruff check .` (or `pip install ruff && ruff check .`)
 - Tests (optional): add `pytest` tests under `tests/` and run `pytest -q`.
 - Send yourself Telegram messages to verify responses and latency.
 
