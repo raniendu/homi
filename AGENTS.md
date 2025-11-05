@@ -11,6 +11,7 @@
 - Docker dev: `docker build -t homiai-bot . && docker run --rm -p 8080:8080 --env-file .env homiai-bot`.
 - Local (no Docker): `python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt && python local_server.py`.
 - Webhook (local): use a tunnel (e.g., `ngrok http 8080`) and set Telegram webhook to `https://<tunnel>/webhook`.
+- Use Available MCP tools where helpful.
 
 ## Coding Style & Naming Conventions
 - Python/PEP 8: 4-space indentation, line length ≤ 100.
