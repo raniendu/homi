@@ -1,9 +1,18 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-This repository is currently a minimal Python project managed with `uv`. Today, the tracked files are:
-- `pyproject.toml`: project metadata and dev tooling dependencies.
+This repository is a Python project managed with `uv`.
+Key files and directories:
+- `src/homi/homi.py`: Textual-based CLI interface entrypoint.
+- `src/homi/config.py`: agent configuration loading/merge logic.
+- `homi.config.json`: default runtime config file (`model` and `agent` sections, including `system_prompt`).
+- `pyproject.toml`: project metadata and dependencies.
 - `uv.lock`: locked dependency graph.
+
+Current interface boundary:
+- `HomiSession` in `src/homi/homi.py` is interface-agnostic runtime/session logic.
+- `HomiTerminalApp` in `src/homi/homi.py` is the Textual TUI interface.
+- Keep TUI-only features (for example `!<command>` shell execution) confined to `HomiTerminalApp` so future interfaces (web/rest) can share session logic safely.
 
 When adding code, follow a standard layout:
 - `src/homi/` for application modules.
@@ -14,6 +23,9 @@ Keep modules small and focused (one responsibility per file), and mirror source 
 
 ## Build, Test, and Development Commands
 - `uv sync --dev`: install runtime and development dependencies.
+- `uv run python src/homi/homi.py`: run the Homi CLI.
+- `uv run python src/homi/homi.py --help`: validate CLI wiring and options.
+- `uv run python -m py_compile src/homi/homi.py src/homi/config.py`: lightweight syntax/import sanity check.
 - `uv run black .`: format Python code.
 - `uv run isort .`: normalize import ordering.
 - `uv run pre-commit run --all-files`: run all configured repository hooks.
@@ -23,7 +35,7 @@ No application entrypoint or packaging workflow is currently defined. Add projec
 If a web or mobile app is added, run it locally after changes and capture a visual of the latest version. Add the exact run command here once it exists.
 
 ## Coding Style & Naming Conventions
-Target Python `>=3.9` (see `pyproject.toml`). Use:
+Target Python `>=3.10` (see `pyproject.toml`). Use:
 - 4-space indentation.
 - `snake_case` for functions, variables, and modules.
 - `PascalCase` for classes.
@@ -52,3 +64,6 @@ PRs should include:
 
 ## Security & Configuration Tips
 Never commit secrets, tokens, or local credentials. Use environment variables and document required keys in project docs when new integrations are added.
+Keep `homi.config.json` free of secrets; it is intended for non-sensitive runtime defaults only.
+Use provider-agnostic config fields (`model.provider`, `model.model_id`, `model.endpoint`, `model.params`) so switching providers later is a config/code extension rather than a redesign.
+Current runtime provider implementation is `ollama`; add new provider branches in `src/homi/homi.py` model factory when expanding support.
