@@ -9,6 +9,11 @@ Key files and directories:
 - `pyproject.toml`: project metadata and dependencies.
 - `uv.lock`: locked dependency graph.
 
+Current interface boundary:
+- `HomiSession` in `src/homi/homi.py` is interface-agnostic runtime/session logic.
+- `HomiTerminalApp` in `src/homi/homi.py` is the Textual TUI interface.
+- Keep TUI-only features (for example `!<command>` shell execution) confined to `HomiTerminalApp` so future interfaces (web/rest) can share session logic safely.
+
 When adding code, follow a standard layout:
 - `src/homi/` for application modules.
 - `tests/` for automated tests.
@@ -19,6 +24,8 @@ Keep modules small and focused (one responsibility per file), and mirror source 
 ## Build, Test, and Development Commands
 - `uv sync --dev`: install runtime and development dependencies.
 - `uv run python src/homi/homi.py`: run the Homi CLI.
+- `uv run python src/homi/homi.py --help`: validate CLI wiring and options.
+- `uv run python -m py_compile src/homi/homi.py src/homi/config.py`: lightweight syntax/import sanity check.
 - `uv run black .`: format Python code.
 - `uv run isort .`: normalize import ordering.
 - `uv run pre-commit run --all-files`: run all configured repository hooks.

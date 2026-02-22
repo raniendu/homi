@@ -73,6 +73,7 @@ When the CLI starts, you will see a `Homi` banner that includes:
 - Agent name (`Homi`)
 - Active model
 - Active provider
+- Temperature
 - Model endpoint (when configured)
 
 In chat mode:
@@ -81,6 +82,7 @@ In chat mode:
 - Use `!<command>` to run a local shell command directly from the TUI.
 - Use `/clear` to reset conversation state.
 - Use `/q`, `/quit`, or `/exit` to stop the session.
+- Use `Ctrl+L` to clear only the visible chat log (conversation memory is preserved).
 
 By default, Homi includes these Strands tools:
 
@@ -90,6 +92,15 @@ By default, Homi includes these Strands tools:
 
 Note: `!<command>` shell execution is implemented only in the Textual TUI input path.
 Other interfaces do not execute shell commands from `!` prompts.
+
+## Interface Design
+
+The current runtime is split into:
+
+- `HomiSession`: interface-agnostic agent/session orchestration (config, model, tools, memory reset).
+- `HomiTerminalApp`: Textual TUI interface (rendering, input handling, slash commands, shell escape).
+
+This separation is intentional so additional interfaces (for example REST/web) can reuse the same session logic without inheriting TUI-only behavior.
 
 Start with an optional initial prompt, then continue chatting:
 
