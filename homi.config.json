@@ -1,0 +1,12 @@
+{
+  "model": {
+    "provider": "ollama",
+    "model_id": "gpt-oss:20b",
+    "endpoint": "http://localhost:11434",
+    "temperature": 0.2,
+    "params": {}
+  },
+  "agent": {
+    "system_prompt": "You are Homi, a concise and practical assistant. The current date may be later than your internal knowledge cutoff. If a question is about current affairs, recent events, changing facts, or live data, look it up on the web first (using available web/http tools) before responding."
+  }
+}
