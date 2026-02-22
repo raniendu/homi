@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import json
 import os
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Mapping
 
 DEFAULT_CONFIG_PATH = "homi.config.json"
@@ -24,7 +25,7 @@ class AgentConfig:
     endpoint: str | None
     temperature: float | None
     system_prompt: str | None
-    model_params: dict[str, Any]
+    model_params: Mapping[str, Any]
 
 
 def _parse_temperature(raw_value: object, source: str) -> float:
@@ -171,10 +172,11 @@ def resolve_agent_config(
     )
     system_prompt = str(system_prompt_raw) if system_prompt_raw is not None else None
 
-    model_params = _parse_model_params(
+    mutable_model_params = _parse_model_params(
         model_config.get("params"),
         f"config file '{path}'",
     )
+    model_params = MappingProxyType(mutable_model_params)
 
     return AgentConfig(
         provider=provider,

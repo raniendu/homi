@@ -116,7 +116,7 @@ def normalize_inline_markdown(text: str) -> str:
 
     # Fenced code blocks -> just code contents.
     normalized = re.sub(
-        r"```(?:[a-zA-Z0-9_+\-]+)?\n(.*?)```",
+        r"```(?:[a-zA-Z0-9_+\-]+)?\n?(.*?)\n?```",
         lambda m: m.group(1).strip(),
         normalized,
         flags=re.DOTALL,
@@ -313,6 +313,9 @@ class HomiTerminalApp(App[None]):
         self._write_system(
             "Commands: /clear resets memory, /q /quit /exit close Homi, !<command> runs shell in TUI."
         )
+        self._write_system(
+            "Security: !<command> executes in your local shell and is intended for trusted local environments."
+        )
         self._write_system("Loaded tools: current_time, calculator, http_request.")
         if self.session.config.system_prompt:
             self._write_system("System prompt loaded from configuration.")
@@ -455,6 +458,8 @@ class HomiTerminalApp(App[None]):
     @work(thread=True)
     def _run_shell_command(self, command: str) -> None:
         try:
+            # Intentional: shell=True preserves shell syntax (pipes/redirection) for the
+            # explicit TUI shell escape feature. This is trusted-local usage only.
             result = subprocess.run(
                 command,
                 shell=True,

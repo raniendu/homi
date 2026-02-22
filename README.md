@@ -92,6 +92,7 @@ By default, Homi includes these Strands tools:
 
 Note: `!<command>` shell execution is implemented only in the Textual TUI input path.
 Other interfaces do not execute shell commands from `!` prompts.
+`!<command>` runs through your local shell to preserve normal shell behavior; use it only in trusted local environments.
 
 ## Interface Design
 

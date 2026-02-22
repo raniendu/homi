@@ -1,7 +1,7 @@
 [project]
 name = "homi"
 version = "0.1.0"
-description = "Add your description here"
+description = "A Strands-powered chat agent with a Textual terminal interface"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
