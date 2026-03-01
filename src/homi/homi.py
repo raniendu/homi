@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime
 import json
 import os
 import re
 import subprocess
+from datetime import datetime
 from typing import Any
 
 from rich.text import Text
@@ -19,9 +19,9 @@ from textual.app import App, ComposeResult
 from textual.widgets import Footer, Header, Input, RichLog, Static
 
 try:
-    from homi.config import AgentConfig, DEFAULT_CONFIG_PATH, resolve_agent_config
+    from homi.config import DEFAULT_CONFIG_PATH, AgentConfig, resolve_agent_config
 except ModuleNotFoundError:  # pragma: no cover - script-path import fallback
-    from config import AgentConfig, DEFAULT_CONFIG_PATH, resolve_agent_config
+    from config import DEFAULT_CONFIG_PATH, AgentConfig, resolve_agent_config
 
 EXIT_COMMANDS = {"/quit", "/exit", "/q"}
 CLEAR_COMMAND = "/clear"
