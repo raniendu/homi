@@ -12,8 +12,9 @@ from typing import Any, Mapping
 DEFAULT_CONFIG_PATH = "homi.config.json"
 DEFAULT_PROVIDER = "ollama"
 DEFAULT_ENDPOINT = "http://localhost:11434"
-DEFAULT_MODEL = "gpt-oss:20b"
+DEFAULT_MODEL = "gpt-oss"
 DEFAULT_TEMPERATURE = 0.2
+DEFAULT_THINKING_EFFORT = "high"
 
 
 @dataclass(frozen=True)
@@ -24,6 +25,7 @@ class AgentConfig:
     model_id: str
     endpoint: str | None
     temperature: float | None
+    thinking_effort: str | None
     system_prompt: str | None
     model_params: Mapping[str, Any]
 
@@ -82,7 +84,15 @@ def _load_config_file(config_path: Path) -> tuple[dict[str, object], dict[str, o
     legacy_container: dict[str, object] = (
         agent_section if agent_section else dict(payload)
     )
-    for key in ("provider", "model_id", "host", "endpoint", "temperature", "params"):
+    for key in (
+        "provider",
+        "model_id",
+        "host",
+        "endpoint",
+        "temperature",
+        "thinking_effort",
+        "params",
+    ):
         if key in legacy_container and key not in model_section:
             model_section[key] = legacy_container[key]
 
@@ -109,6 +119,7 @@ def resolve_agent_config(
     host_override: str | None = None,
     model_override: str | None = None,
     temperature_override: float | None = None,
+    thinking_effort_override: str | None = None,
     system_prompt_override: str | None = None,
     env: Mapping[str, str] | None = None,
 ) -> AgentConfig:
@@ -165,6 +176,18 @@ def resolve_agent_config(
     else:
         temperature = DEFAULT_TEMPERATURE if provider.lower() == "ollama" else None
 
+    thinking_effort_raw = _coalesce(
+        thinking_effort_override,
+        env_data.get("HOMI_MODEL_THINKING_EFFORT"),
+        model_config.get("thinking_effort"),
+        DEFAULT_THINKING_EFFORT,
+    )
+    thinking_effort = (
+        str(thinking_effort_raw).strip() if thinking_effort_raw is not None else None
+    )
+    if thinking_effort and thinking_effort.lower() in {"off", "none", "false", "0"}:
+        thinking_effort = None
+
     system_prompt_raw = _coalesce(
         system_prompt_override,
         env_data.get("HOMI_SYSTEM_PROMPT"),
@@ -183,6 +206,7 @@ def resolve_agent_config(
         model_id=model_id,
         endpoint=endpoint,
         temperature=temperature,
+        thinking_effort=thinking_effort,
         system_prompt=system_prompt,
         model_params=model_params,
     )

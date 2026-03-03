@@ -1,9 +1,10 @@
 {
   "model": {
     "provider": "ollama",
-    "model_id": "gpt-oss:20b",
+    "model_id": "gpt-oss",
     "endpoint": "http://localhost:11434",
     "temperature": 0.2,
+    "thinking_effort": "high",
     "params": {}
   },
   "agent": {
