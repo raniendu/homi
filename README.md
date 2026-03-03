@@ -11,7 +11,7 @@ For local development with Ollama:
 2. Pull at least one local model:
 
 ```bash
-ollama pull gpt-oss:20b
+ollama pull gpt-oss
 ```
 
 3. Start the Ollama server:
@@ -37,9 +37,10 @@ Default file:
 {
   "model": {
     "provider": "ollama",
-    "model_id": "gpt-oss:20b",
+    "model_id": "gpt-oss",
     "endpoint": "http://localhost:11434",
     "temperature": 0.2,
+    "thinking_effort": "high",
     "params": {}
   },
   "agent": {
@@ -50,8 +51,8 @@ Default file:
 
 Configuration precedence (highest to lowest):
 
-1. CLI flags (`--provider`, `--model`, `--endpoint`, `--temperature`, `--system-prompt`)
-2. Environment variables (`HOMI_MODEL_PROVIDER`, `HOMI_MODEL_ID`, `HOMI_MODEL_ENDPOINT`, `HOMI_MODEL_TEMPERATURE`, `HOMI_SYSTEM_PROMPT`)
+1. CLI flags (`--provider`, `--model`, `--endpoint`, `--temperature`, `--thinking-effort`, `--system-prompt`)
+2. Environment variables (`HOMI_MODEL_PROVIDER`, `HOMI_MODEL_ID`, `HOMI_MODEL_ENDPOINT`, `HOMI_MODEL_TEMPERATURE`, `HOMI_MODEL_THINKING_EFFORT`, `HOMI_SYSTEM_PROMPT`)
 3. Config file (`homi.config.json`)
 4. Built-in defaults
 
@@ -62,7 +63,13 @@ Use a different config file path with:
 
 ## Run Homi
 
-Start interactive chat with the default model (`gpt-oss:20b`):
+Start interactive chat with the default model (`gpt-oss`):
+
+```bash
+uv run homi
+```
+
+You can still run the module directly if needed:
 
 ```bash
 uv run python src/homi/homi.py
@@ -74,6 +81,7 @@ When the CLI starts, you will see a `Homi` banner that includes:
 - Active model
 - Active provider
 - Temperature
+- Thinking effort
 - Model endpoint (when configured)
 
 In chat mode:
@@ -106,25 +114,61 @@ This separation is intentional so additional interfaces (for example REST/web) c
 Start with an optional initial prompt, then continue chatting:
 
 ```bash
-uv run python src/homi/homi.py "Give me three bullet points about Strands Agents."
+uv run homi "Give me three bullet points about Strands Agents."
 ```
 
 Use a different local model or endpoint:
 
 ```bash
-uv run python src/homi/homi.py --provider ollama --model mistral --endpoint http://localhost:11434 "Hello!"
+uv run homi --provider ollama --model mistral --endpoint http://localhost:11434 "Hello!"
 ```
 
 Use a custom temperature:
 
 ```bash
-uv run python src/homi/homi.py --temperature 0.4
+uv run homi --temperature 0.4
 ```
+
+Thinking effort defaults to `high`. Override it when needed:
+
+```bash
+uv run homi --thinking-effort medium
+```
+
+If the selected provider/model integration does not expose a thinking-effort style parameter, Homi ignores this setting without failing startup.
 
 Override the system prompt:
 
 ```bash
-uv run python src/homi/homi.py --system-prompt "You are Homi. Keep answers short and technical."
+uv run homi --system-prompt "You are Homi. Keep answers short and technical."
+```
+
+## One-Shot / Cron Mode
+
+Use one-shot mode to run a single prompt and exit without opening the Textual UI:
+
+```bash
+uv run homi --prompt "Summarize yesterday's deployment alerts." --oneshot
+```
+
+`--prompt` takes precedence over positional prompt text. Without `--oneshot`, prompts still open interactive mode.
+
+Emit JSON output for automation:
+
+```bash
+uv run homi --prompt "Status report" --oneshot --json
+```
+
+One-shot exit codes:
+
+- `0`: successful response
+- `1`: model/provider runtime failure
+- `2`: invalid CLI usage (for example, `--oneshot` without a prompt)
+
+Cron example:
+
+```bash
+*/15 * * * * cd /path/to/homi && uv run homi --prompt "Check service health and summarize." --oneshot >> /var/log/homi.log 2>> /var/log/homi.err
 ```
 
 You can also set environment variables instead of flags:
@@ -134,8 +178,23 @@ You can also set environment variables instead of flags:
 - `HOMI_MODEL_ID`
 - `HOMI_MODEL_ENDPOINT`
 - `HOMI_MODEL_TEMPERATURE`
+- `HOMI_MODEL_THINKING_EFFORT`
 - `HOMI_SYSTEM_PROMPT`
 
 Compatibility note:
 
 - Legacy env vars (`OLLAMA_MODEL`, `OLLAMA_HOST`, `OLLAMA_TEMPERATURE`) are still accepted as fallbacks.
+
+## Development Checks
+
+Run tests:
+
+```bash
+uv run pytest -q
+```
+
+Run a quick syntax/import check:
+
+```bash
+uv run python -m py_compile src/homi/homi.py src/homi/config.py
+```

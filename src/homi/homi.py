@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 import os
 import re
@@ -34,9 +34,15 @@ def parse_args() -> argparse.Namespace:
         description="Run Homi CLI, a terminal chat interface with configurable model provider."
     )
     parser.add_argument(
-        "prompt",
+        "prompt_tokens",
         nargs="*",
         help="Optional initial prompt submitted after the interface loads.",
+    )
+    parser.add_argument(
+        "--prompt",
+        dest="prompt_text",
+        default=None,
+        help="Prompt text for initial message or one-shot mode.",
     )
     parser.add_argument(
         "--config",
@@ -71,11 +77,91 @@ def parse_args() -> argparse.Namespace:
         help="Temperature override for model generation.",
     )
     parser.add_argument(
+        "--thinking-effort",
+        default=None,
+        help=(
+            "Reasoning/thinking effort preference (for example: high/medium/low). "
+            "Applied only when supported by the selected provider/model integration."
+        ),
+    )
+    parser.add_argument(
         "--system-prompt",
         default=None,
         help="System prompt override for the agent.",
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--oneshot",
+        action="store_true",
+        help="Run a single prompt/response interaction and exit without launching the TUI.",
+    )
+    parser.add_argument(
+        "--json",
+        dest="json_output",
+        action="store_true",
+        help="Emit one-shot output as JSON (requires --oneshot).",
+    )
+    parsed = parser.parse_args()
+    initial_prompt = resolve_initial_prompt(parsed)
+    if parsed.json_output and not parsed.oneshot:
+        parser.error("--json requires --oneshot.")
+    if parsed.oneshot and not initial_prompt:
+        parser.error(
+            "--oneshot requires a prompt via --prompt or positional prompt text."
+        )
+    return parsed
+
+
+def resolve_initial_prompt(args: argparse.Namespace) -> str | None:
+    """Resolve the initial prompt from CLI flags and positional tokens."""
+    if args.prompt_text is not None:
+        normalized_prompt_text = args.prompt_text.strip()
+        return normalized_prompt_text or None
+
+    positional_prompt = " ".join(args.prompt_tokens).strip()
+    return positional_prompt or None
+
+
+def format_oneshot_output(
+    *,
+    prompt: str,
+    raw_response: Any,
+    config: AgentConfig,
+    json_output: bool,
+) -> str:
+    """Format one-shot mode output for plain text or JSON use cases."""
+    response_text = format_message_for_display(raw_response)
+    if not json_output:
+        return normalize_inline_markdown(response_text)
+
+    payload = {
+        "prompt": prompt,
+        "response": response_text,
+        "provider": config.provider,
+        "model_id": config.model_id,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def build_provider_hint(config: AgentConfig | None, args: argparse.Namespace) -> str:
+    """Generate provider-specific runtime troubleshooting guidance."""
+    model_hint = (
+        args.model_id
+        or os.getenv("HOMI_MODEL_ID")
+        or os.getenv("OLLAMA_MODEL")
+        or "configured model"
+    )
+    if config and config.provider.lower() == "ollama":
+        return (
+            f"Ensure Ollama is running at '{config.endpoint}' "
+            f"and model '{config.model_id}' is pulled."
+        )
+
+    provider_name = config.provider if config else (args.provider or "configured")
+    return (
+        f"Check connectivity/auth for provider '{provider_name}' "
+        f"and model '{model_hint}'."
+    )
 
 
 def format_message_for_display(message: Any) -> str:
@@ -160,11 +246,27 @@ class HomiSession:
                     if key not in reserved_keys
                 }
             )
+            self._apply_thinking_effort_if_supported(
+                model_kwargs=model_kwargs,
+                supported_keys=set(OllamaModel.OllamaConfig.__annotations__.keys()),
+            )
             return OllamaModel(**model_kwargs)
 
         raise ValueError(
             f"Unsupported model provider '{self.config.provider}'. Currently supported: ollama."
         )
+
+    def _apply_thinking_effort_if_supported(
+        self, *, model_kwargs: dict[str, Any], supported_keys: set[str]
+    ) -> None:
+        effort = self.config.thinking_effort
+        if not effort:
+            return
+
+        for candidate_key in ("thinking_effort", "reasoning_effort", "effort"):
+            if candidate_key in supported_keys and candidate_key not in model_kwargs:
+                model_kwargs[candidate_key] = effort
+                return
 
     def _build_agent(self) -> Agent:
         model = self._build_model()
@@ -287,6 +389,13 @@ class HomiTerminalApp(App[None]):
             model_text.append(
                 f" {self.session.config.temperature:.2f}  ", style="#36506a"
             )
+        model_text.append(" THINK ", style="bold #004578 on #dceeff")
+        if self.session.config.thinking_effort:
+            model_text.append(
+                f" {self.session.config.thinking_effort}  ", style="#36506a"
+            )
+        else:
+            model_text.append(" n/a  ", style="#36506a")
         if self.session.config.endpoint:
             model_text.append(" ENDPOINT ", style="bold #004578 on #dceeff")
             model_text.append(f" {self.session.config.endpoint} ", style="#36506a")
@@ -308,7 +417,11 @@ class HomiTerminalApp(App[None]):
             if self.session.config.temperature is not None
             else "n/a"
         )
-        self.sub_title = f"{self.session.config.provider}:{self.session.config.model_id} | Temp: {temp_value}"
+        thinking_value = self.session.config.thinking_effort or "n/a"
+        self.sub_title = (
+            f"{self.session.config.provider}:{self.session.config.model_id} "
+            f"| Temp: {temp_value} | Thinking: {thinking_value}"
+        )
         self._write_system("Homi is ready.")
         self._write_system(
             "Commands: /clear resets memory, /q /quit /exit close Homi, !<command> runs shell in TUI."
@@ -487,7 +600,7 @@ class HomiTerminalApp(App[None]):
 
 def main() -> None:
     args = parse_args()
-    initial_prompt = " ".join(args.prompt).strip() or None
+    initial_prompt = resolve_initial_prompt(args)
     config: AgentConfig | None = None
 
     try:
@@ -497,28 +610,36 @@ def main() -> None:
             host_override=args.endpoint,
             model_override=args.model_id,
             temperature_override=args.temperature,
+            thinking_effort_override=args.thinking_effort,
             system_prompt_override=args.system_prompt,
         )
         session = HomiSession(config=config)
     except ValueError as exc:
         raise SystemExit(f"Configuration error: {exc}") from exc
     except Exception as exc:  # pragma: no cover - runtime integration guard
-        model_hint = (
-            args.model_id
-            or os.getenv("HOMI_MODEL_ID")
-            or os.getenv("OLLAMA_MODEL")
-            or "configured model"
-        )
-        if config and config.provider.lower() == "ollama":
-            provider_hint = f"Ensure Ollama is running at '{config.endpoint}' and model '{config.model_id}' is pulled."
-        else:
-            provider_name = (
-                config.provider if config else (args.provider or "configured")
-            )
-            provider_hint = f"Check connectivity/auth for provider '{provider_name}' and model '{model_hint}'."
+        provider_hint = build_provider_hint(config, args)
         raise SystemExit(
             "Homi startup failed. " f"{provider_hint} Error: {exc}"
         ) from exc
+
+    if args.oneshot:
+        assert config is not None  # for type narrowing; set during startup success path
+        assert initial_prompt is not None  # enforced by argument validation
+        try:
+            raw_response = session.reply(initial_prompt)
+            output = format_oneshot_output(
+                prompt=initial_prompt,
+                raw_response=raw_response,
+                config=config,
+                json_output=args.json_output,
+            )
+        except Exception as exc:  # pragma: no cover - runtime integration guard
+            provider_hint = build_provider_hint(config, args)
+            raise SystemExit(
+                "Homi one-shot failed. " f"{provider_hint} Error: {exc}"
+            ) from exc
+        print(output)
+        return
 
     app = HomiTerminalApp(session=session, initial_prompt=initial_prompt)
     app.run()
