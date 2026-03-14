@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
 import json
 import os
 import re
 import subprocess
+from datetime import datetime, timezone
 from typing import Any
 
 from rich.text import Text
